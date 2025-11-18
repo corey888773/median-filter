@@ -126,3 +126,119 @@ pub fn collect_neighborhood(img: &Image, x: u32, y: u32, kernel_size: usize) -> 
     pixels
 }
 
+/// Calculate PSNR (Peak Signal-to-Noise Ratio) between two images
+/// Higher is better, typical values: 20-50 dB
+pub fn calculate_psnr(original: &Image, processed: &Image) -> f64 {
+    if original.width != processed.width || original.height != processed.height {
+        panic!("Images must have the same dimensions");
+    }
+
+    let mut mse = 0.0;
+    let total_pixels = (original.width * original.height) as f64;
+
+    for y in 0..original.height {
+        for x in 0..original.width {
+            let orig = original.get_pixel(x, y);
+            let proc = processed.get_pixel(x, y);
+
+            for c in 0..3 {
+                let diff = orig[c] as f64 - proc[c] as f64;
+                mse += diff * diff;
+            }
+        }
+    }
+
+    mse /= total_pixels * 3.0; // 3 channels
+
+    if mse == 0.0 {
+        f64::INFINITY
+    } else {
+        20.0 * (255.0_f64).log10() - 10.0 * mse.log10()
+    }
+}
+
+/// Calculate SSIM (Structural Similarity Index) between two images
+/// Range: -1 to 1, where 1 means identical images
+/// Typical good values: > 0.9
+pub fn calculate_ssim(original: &Image, processed: &Image) -> f64 {
+    if original.width != processed.width || original.height != processed.height {
+        panic!("Images must have the same dimensions");
+    }
+
+    // Constants for SSIM calculation
+    let c1 = (0.01_f64 * 255.0_f64).powi(2);
+    let c2 = (0.03_f64 * 255.0_f64).powi(2);
+
+    let mut ssim_sum = 0.0;
+    let mut count = 0;
+
+    // Use 8x8 windows with stride 8 for efficiency
+    let window_size = 8;
+    let stride = 8;
+
+    for y in (0..original.height).step_by(stride) {
+        for x in (0..original.width).step_by(stride) {
+            let max_x = (x + window_size).min(original.width);
+            let max_y = (y + window_size).min(original.height);
+
+            // Calculate statistics for this window
+            let mut mean1 = 0.0;
+            let mut mean2 = 0.0;
+            let mut var1 = 0.0;
+            let mut var2 = 0.0;
+            let mut covar = 0.0;
+            let mut window_pixels = 0;
+
+            // First pass: calculate means
+            for wy in y..max_y {
+                for wx in x..max_x {
+                    let p1 = original.get_pixel(wx, wy);
+                    let p2 = processed.get_pixel(wx, wy);
+
+                    // Average across RGB channels
+                    let v1 = (p1[0] as f64 + p1[1] as f64 + p1[2] as f64) / 3.0;
+                    let v2 = (p2[0] as f64 + p2[1] as f64 + p2[2] as f64) / 3.0;
+
+                    mean1 += v1;
+                    mean2 += v2;
+                    window_pixels += 1;
+                }
+            }
+
+            mean1 /= window_pixels as f64;
+            mean2 /= window_pixels as f64;
+
+            // Second pass: calculate variances and covariance
+            for wy in y..max_y {
+                for wx in x..max_x {
+                    let p1 = original.get_pixel(wx, wy);
+                    let p2 = processed.get_pixel(wx, wy);
+
+                    let v1 = (p1[0] as f64 + p1[1] as f64 + p1[2] as f64) / 3.0;
+                    let v2 = (p2[0] as f64 + p2[1] as f64 + p2[2] as f64) / 3.0;
+
+                    let diff1 = v1 - mean1;
+                    let diff2 = v2 - mean2;
+
+                    var1 += diff1 * diff1;
+                    var2 += diff2 * diff2;
+                    covar += diff1 * diff2;
+                }
+            }
+
+            var1 /= window_pixels as f64;
+            var2 /= window_pixels as f64;
+            covar /= window_pixels as f64;
+
+            // Calculate SSIM for this window
+            let numerator = (2.0 * mean1 * mean2 + c1) * (2.0 * covar + c2);
+            let denominator = (mean1 * mean1 + mean2 * mean2 + c1) * (var1 + var2 + c2);
+
+            ssim_sum += numerator / denominator;
+            count += 1;
+        }
+    }
+
+    ssim_sum / count as f64
+}
+

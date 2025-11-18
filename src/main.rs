@@ -45,6 +45,8 @@ struct Measurement {
     processing_time_ms: f64,
     method: String,
     num_processes: i32,
+    psnr: f64,
+    ssim: f64,
 }
 
 fn validate_args(args: &Args) -> Result<(), String> {
@@ -68,6 +70,10 @@ fn main() {
         std::process::exit(1);
     }
 
+    // Load original image (for PSNR/SSIM calculation)
+    println!("Loading image: {:?}", args.input);
+    let original = shared::Image::load(&args.input).expect("Failed to load image");
+
     // Special handling for distributed method
     if args.method == "dist" {
         let start = Instant::now();
@@ -82,15 +88,21 @@ fn main() {
         // Only root process saves output and logs
         if rank == 0 {
             println!("Processing time: {:.2} ms", processing_time_ms);
+
+            // Calculate PSNR and SSIM
+            let psnr = shared::calculate_psnr(&original, &filtered);
+            let ssim = shared::calculate_ssim(&original, &filtered);
+            println!("PSNR: {:.2} dB, SSIM: {:.4}", psnr, ssim);
+
             println!("Saving output: {:?}", args.output);
             filtered.save(&args.output).expect("Failed to save output image");
-            save_measurement(&args, processing_time_ms, Some(num_processes));
+            save_measurement(&args, processing_time_ms, Some(num_processes), psnr, ssim);
             println!("Done!");
         }
         return;
     }
 
-    println!("Loading image: {:?}", args.input);
+    // Clone original for noisy version
     let mut img = shared::Image::load(&args.input).expect("Failed to load image");
 
     // Add noise if requested
@@ -118,17 +130,28 @@ fn main() {
 
     println!("Processing time: {:.2} ms", processing_time_ms);
 
+    // Calculate PSNR and SSIM
+    let psnr = shared::calculate_psnr(&original, &filtered);
+    let ssim = shared::calculate_ssim(&original, &filtered);
+    println!("PSNR: {:.2} dB, SSIM: {:.4}", psnr, ssim);
+
     // Save output image
     println!("Saving output: {:?}", args.output);
     filtered.save(&args.output).expect("Failed to save output image");
 
     // Save measurement to CSV
-    save_measurement(&args, processing_time_ms, None);
+    save_measurement(&args, processing_time_ms, None, psnr, ssim);
 
     println!("Done!");
 }
 
-fn save_measurement(args: &Args, processing_time_ms: f64, num_processes: Option<i32>) {
+fn save_measurement(
+    args: &Args,
+    processing_time_ms: f64,
+    num_processes: Option<i32>,
+    psnr: f64,
+    ssim: f64,
+) {
     // Create results directory if it doesn't exist
     create_dir_all("results").expect("Failed to create results directory");
 
@@ -156,6 +179,8 @@ fn save_measurement(args: &Args, processing_time_ms: f64, num_processes: Option<
         processing_time_ms,
         method: args.method.clone(),
         num_processes: num_processes.unwrap_or(1),
+        psnr,
+        ssim,
     };
 
     wtr.serialize(measurement).expect("Failed to serialize measurement");
