@@ -1,0 +1,2 @@
+timestamp,image,kernel_size,noise_level,processing_time_ms,method
+2025-11-18T22:06:38.184454+01:00,image.jpg,3,0.1,4213.082583,dist

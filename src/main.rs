@@ -2,6 +2,7 @@ mod shared;
 mod sequential;
 mod parallel;
 mod gpu;
+mod distributed;
 
 use clap::Parser;
 use csv::Writer;
@@ -66,6 +67,28 @@ fn main() {
         std::process::exit(1);
     }
 
+    // Special handling for distributed method
+    if args.method == "dist" {
+        let start = Instant::now();
+        let (filtered, rank) = distributed::apply_median_filter_mpi(
+            &args.input,
+            args.noise,
+            args.kernel,
+        );
+        let duration = start.elapsed();
+        let processing_time_ms = duration.as_secs_f64() * 1000.0;
+
+        // Only root process saves output and logs
+        if rank == 0 {
+            println!("Processing time: {:.2} ms", processing_time_ms);
+            println!("Saving output: {:?}", args.output);
+            filtered.save(&args.output).expect("Failed to save output image");
+            save_measurement(&args, processing_time_ms);
+            println!("Done!");
+        }
+        return;
+    }
+
     println!("Loading image: {:?}", args.input);
     let mut img = shared::Image::load(&args.input).expect("Failed to load image");
 
@@ -85,7 +108,7 @@ fn main() {
         "par" => parallel::apply_median_filter(&img, args.kernel),
         "gpu" => gpu::apply_median_filter(&img, args.kernel),
         _ => {
-            eprintln!("Error: Unknown method '{}'. Available: seq, par, gpu", args.method);
+            eprintln!("Error: Unknown method '{}'. Available: seq, par, gpu, dist", args.method);
             std::process::exit(1);
         }
     };
@@ -99,14 +122,14 @@ fn main() {
     filtered.save(&args.output).expect("Failed to save output image");
 
     // Save measurement to CSV
-    save_measurement(&args, processing_time_ms).expect("Failed to save measurement");
+    save_measurement(&args, processing_time_ms);
 
     println!("Done!");
 }
 
-fn save_measurement(args: &Args, processing_time_ms: f64) -> Result<(), Box<dyn std::error::Error>> {
+fn save_measurement(args: &Args, processing_time_ms: f64) {
     // Create results directory if it doesn't exist
-    create_dir_all("results")?;
+    create_dir_all("results").expect("Failed to create results directory");
 
     let csv_path = format!("results/{}.csv", args.method);
 
@@ -114,7 +137,8 @@ fn save_measurement(args: &Args, processing_time_ms: f64) -> Result<(), Box<dyn 
         .create(true)
         .write(true)
         .truncate(true)
-        .open(&csv_path)?;
+        .open(&csv_path)
+        .expect("Failed to open CSV file");
 
     let mut wtr = Writer::from_writer(file);
 
@@ -127,10 +151,8 @@ fn save_measurement(args: &Args, processing_time_ms: f64) -> Result<(), Box<dyn 
         method: args.method.clone(),
     };
 
-    wtr.serialize(measurement)?;
-    wtr.flush()?;
+    wtr.serialize(measurement).expect("Failed to serialize measurement");
+    wtr.flush().expect("Failed to flush CSV writer");
 
     println!("Measurement saved to: {}", csv_path);
-
-    Ok(())
 }
