@@ -15,7 +15,6 @@ struct Params {
 
 fn median9(values: array<u32, 9>) -> u32 {
     var v = values;
-    // Bubble sort for 9 elements
     for (var i = 0u; i < 9u; i++) {
         for (var j = i + 1u; j < 9u; j++) {
             if (v[i] > v[j]) {
@@ -42,6 +41,28 @@ fn median25(values: array<u32, 25>) -> u32 {
     return v[12];
 }
 
+fn get_pixel_channel(x: i32, y: i32, channel: u32) -> u32 {
+    // Mirror padding logic
+    var nx = x;
+    var ny = y;
+    
+    if (nx < 0) { nx = -nx; }
+    if (nx >= i32(params.width)) { nx = 2 * i32(params.width) - nx - 2; }
+    if (ny < 0) { ny = -ny; }
+    if (ny >= i32(params.height)) { ny = 2 * i32(params.height) - ny - 2; }
+
+    let pixel_idx = u32(ny) * params.width + u32(nx);
+    let packed = input[pixel_idx];
+
+    if (channel == 0u) {
+        return (packed >> 16u) & 0xFFu;
+    } else if (channel == 1u) {
+        return (packed >> 8u) & 0xFFu;
+    } else {
+        return packed & 0xFFu;
+    }
+}
+
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let x = global_id.x;
@@ -52,91 +73,46 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     let half = i32(params.kernel_size) / 2;
+    var result_packed = 0u;
 
     // Process each channel separately
     for (var channel = 0u; channel < 3u; channel++) {
+        var median_val = 0u;
+
         if (params.kernel_size == 3u) {
             var values: array<u32, 9>;
             var idx = 0u;
-
             for (var dy = -half; dy <= half; dy++) {
                 for (var dx = -half; dx <= half; dx++) {
-                    // Mirror padding
-                    var nx = i32(x) + dx;
-                    var ny = i32(y) + dy;
-
-                    if (nx < 0) { nx = -nx; }
-                    if (nx >= i32(params.width)) { nx = 2 * i32(params.width) - nx - 2; }
-                    if (ny < 0) { ny = -ny; }
-                    if (ny >= i32(params.height)) { ny = 2 * i32(params.height) - ny - 2; }
-
-                    let pixel_idx = u32(ny) * params.width + u32(nx);
-                    let packed = input[pixel_idx];
-
-                    // Extract channel from packed RGB
-                    if (channel == 0u) {
-                        values[idx] = (packed >> 16u) & 0xFFu;
-                    } else if (channel == 1u) {
-                        values[idx] = (packed >> 8u) & 0xFFu;
-                    } else {
-                        values[idx] = packed & 0xFFu;
-                    }
+                    values[idx] = get_pixel_channel(i32(x) + dx, i32(y) + dy, channel);
                     idx++;
                 }
             }
-
-            let median_val = median9(values);
-            let out_idx = y * params.width + x;
-
-            // Update the channel in packed format
-            if (channel == 0u) {
-                output[out_idx] = (output[out_idx] & 0x00FFFFu) | (median_val << 16u);
-            } else if (channel == 1u) {
-                output[out_idx] = (output[out_idx] & 0xFF00FFu) | (median_val << 8u);
-            } else {
-                output[out_idx] = (output[out_idx] & 0xFFFF00u) | median_val;
-            }
-
+            median_val = median9(values);
         } else { // kernel_size == 5
             var values: array<u32, 25>;
             var idx = 0u;
-
             for (var dy = -half; dy <= half; dy++) {
                 for (var dx = -half; dx <= half; dx++) {
-                    var nx = i32(x) + dx;
-                    var ny = i32(y) + dy;
-
-                    if (nx < 0) { nx = -nx; }
-                    if (nx >= i32(params.width)) { nx = 2 * i32(params.width) - nx - 2; }
-                    if (ny < 0) { ny = -ny; }
-                    if (ny >= i32(params.height)) { ny = 2 * i32(params.height) - ny - 2; }
-
-                    let pixel_idx = u32(ny) * params.width + u32(nx);
-                    let packed = input[pixel_idx];
-
-                    if (channel == 0u) {
-                        values[idx] = (packed >> 16u) & 0xFFu;
-                    } else if (channel == 1u) {
-                        values[idx] = (packed >> 8u) & 0xFFu;
-                    } else {
-                        values[idx] = packed & 0xFFu;
-                    }
+                    values[idx] = get_pixel_channel(i32(x) + dx, i32(y) + dy, channel);
                     idx++;
                 }
             }
+            median_val = median25(values);
+        }
 
-            let median_val = median25(values);
-            let out_idx = y * params.width + x;
-
-            if (channel == 0u) {
-                output[out_idx] = (output[out_idx] & 0x00FFFFu) | (median_val << 16u);
-            } else if (channel == 1u) {
-                output[out_idx] = (output[out_idx] & 0xFF00FFu) | (median_val << 8u);
-            } else {
-                output[out_idx] = (output[out_idx] & 0xFFFF00u) | median_val;
-            }
+        // Pack result
+        if (channel == 0u) {
+            result_packed |= (median_val << 16u);
+        } else if (channel == 1u) {
+            result_packed |= (median_val << 8u);
+        } else {
+            result_packed |= median_val;
         }
     }
+    
+    let out_idx = y * params.width + x;
+    output[out_idx] = result_packed;
 }
 "#;
 
@@ -154,16 +130,14 @@ pub fn apply_median_filter(img: &Image, kernel_size: usize) -> Image {
     }))
     .expect("Failed to find GPU adapter");
 
-    let (device, queue) = pollster::block_on(adapter.request_device(
-        &wgpu::DeviceDescriptor {
-            label: None,
-            required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::default(),
-            memory_hints: wgpu::MemoryHints::default(),
-            trace: wgpu::Trace::Off,
-            experimental_features: wgpu::ExperimentalFeatures::disabled(),
-        },
-    ))
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: None,
+        required_features: wgpu::Features::empty(),
+        required_limits: wgpu::Limits::default(),
+        memory_hints: wgpu::MemoryHints::default(),
+        trace: wgpu::Trace::Off,
+        experimental_features: wgpu::ExperimentalFeatures::disabled(),
+    }))
     .expect("Failed to create device");
 
     // Compile shader
@@ -173,7 +147,8 @@ pub fn apply_median_filter(img: &Image, kernel_size: usize) -> Image {
     });
 
     // Pack RGB pixels into u32 (R << 16 | G << 8 | B)
-    let input_data: Vec<u32> = img.data
+    let input_data: Vec<u32> = img
+        .data
         .pixels()
         .map(|p| {
             let r = p[0] as u32;
@@ -318,7 +293,10 @@ pub fn apply_median_filter(img: &Image, kernel_size: usize) -> Image {
         sender.send(result).unwrap();
     });
 
-    let _ = device.poll(wgpu::PollType::Wait { submission_index: Some(submission_index), timeout: None });
+    let _ = device.poll(wgpu::PollType::Wait {
+        submission_index: Some(submission_index),
+        timeout: None,
+    });
     receiver.recv().unwrap().expect("Failed to map buffer");
 
     let data = buffer_slice.get_mapped_range();
