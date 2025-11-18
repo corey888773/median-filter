@@ -24,7 +24,7 @@ Projekt implementujący filtr medianowy do usuwania szumu impulsowego (salt-and-
 
 1. Sklonuj repozytorium:
 ```bash
-git clone <repository-url>
+git clone 
 cd median-filter
 ```
 
@@ -195,8 +195,6 @@ Implementacja równoległa z użyciem biblioteki Rayon:
 - Wykorzystuje wszystkie dostępne rdzenie procesora
 - Używa `par_iter()` do automatycznej paralelizacji
 
-**Przyspieszenie**: ~8x na Apple M3 Pro (zależy od liczby rdzeni)
-
 **Kod kluczowy**:
 ```rust
 output_data.par_chunks_mut(width * 3)
@@ -214,8 +212,6 @@ Implementacja GPU z użyciem WGPU (WebGPU API) i shadera WGSL:
 - Każdy piksel przetwarzany przez osobny wątek GPU
 - Shader WGSL wykonuje sortowanie i wybór mediany
 - Format danych: RGB spakowane do u32 (R << 16 | G << 8 | B)
-
-**Przyspieszenie**: ~15x na Apple M3 Pro GPU (Metal backend)
 
 **Shader WGSL** (`src/gpu.rs`):
 - Każdy workgroup przetwarza fragment obrazu
@@ -238,8 +234,6 @@ Implementacja rozproszona z użyciem MPI:
 3. Procesy wymieniają ghost rows z sąsiadami
 4. Każdy proces przetwarza swój fragment
 5. Root zbiera przetworzone fragmenty
-
-**Przyspieszenie**: ~1.7x dla 4 procesów (overhead komunikacji MPI)
 
 **Uwaga**: MPI jest zaprojektowane dla klastrów - na jednej maszynie overhead komunikacji może przewyższać korzyści z paralelizacji.
 
