@@ -151,11 +151,13 @@ Testy wydajnościowe zostały przeprowadzone na następującej konfiguracji:
 
 - **Komputer**: MacBook Pro 16-inch, Nov 2023
 - **Procesor**: Apple M3 Pro
+- **GPU**: Apple M3 Pro (zintegrowane GPU, Metal API)
 - **Pamięć RAM**: 36 GB
 - **Dysk**: Macintosh HD
 - **System operacyjny**: macOS Sequoia 15.7.2
 - **Kompilator**: Rust edition 2021 (release mode z optymalizacjami)
 - **MPI**: Open MPI 5.0.8
+- **GPU Backend**: Metal (przez WGPU 27.0.1)
 
 ## Opis działania algorytmu
 
@@ -206,18 +208,21 @@ output_data.par_chunks_mut(width * 3)
 
 #### 3. GPU (`src/gpu.rs`)
 
-Implementacja GPU z użyciem WGPU i shadera WGSL:
+Implementacja GPU z użyciem WGPU (WebGPU API) i shadera WGSL:
+- **Backend**: Metal (natywne API GPU dla Apple Silicon)
 - Przenosi obraz do pamięci GPU
 - Każdy piksel przetwarzany przez osobny wątek GPU
 - Shader WGSL wykonuje sortowanie i wybór mediany
 - Format danych: RGB spakowane do u32 (R << 16 | G << 8 | B)
 
-**Przyspieszenie**: ~15x na Apple M3 Pro GPU
+**Przyspieszenie**: ~15x na Apple M3 Pro GPU (Metal backend)
 
 **Shader WGSL** (`src/gpu.rs`):
 - Każdy workgroup przetwarza fragment obrazu
 - Sortowanie bąbelkowe w shaderze (wystarczające dla małych kerneli)
 - Wykorzystanie shared memory dla wydajności
+
+**Uwaga**: WGPU automatycznie wybiera backend (Metal na macOS, Vulkan na Linux, DirectX na Windows)
 
 #### 4. Distributed (`src/distributed.rs`)
 
