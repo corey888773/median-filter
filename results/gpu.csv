@@ -1,2 +1,2 @@
 timestamp,image,kernel_size,noise_level,processing_time_ms,method
-2025-11-18T20:48:04.824681+01:00,image.jpg,3,0.1,235.03775,gpu
+2025-11-18T22:14:53.352032+01:00,image.jpg,5,0.1,702.8769580000001,gpu

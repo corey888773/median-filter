@@ -7,7 +7,7 @@ pub fn apply_median_filter_mpi(
     input_path: &Path,
     noise_level: f32,
     kernel_size: usize,
-) -> (Image, i32) {
+) -> (Image, i32, i32) {
     let universe = mpi::initialize().expect("Failed to initialize MPI");
     let world = universe.world();
     let rank = world.rank();
@@ -16,7 +16,7 @@ pub fn apply_median_filter_mpi(
     let half_kernel = (kernel_size / 2) as i32;
 
     // Root process loads image and broadcasts dimensions
-    let (width, height) = if rank == 0 {
+    if rank == 0 {
         let mut img = Image::load(input_path).expect("Failed to load image");
         if noise_level > 0.0 {
             crate::shared::add_noise(&mut img, noise_level);
@@ -91,7 +91,7 @@ pub fn apply_median_filter_mpi(
             }
         }
 
-        (output, rank)
+        (output, rank, size)
     } else {
         // Worker process
         let width: u32 = world.process_at_rank(0).receive().0;
@@ -113,10 +113,8 @@ pub fn apply_median_filter_mpi(
         let result_data = serialize_chunk(&processed, 0, processed.height as i32);
         world.process_at_rank(0).send(&result_data[..]);
 
-        (Image::new_empty(1, 1), rank)
-    };
-
-    (width, height)
+        (Image::new_empty(1, 1), rank, size)
+    }
 }
 
 fn extract_chunk(img: &Image, start_row: i32, end_row: i32) -> Image {

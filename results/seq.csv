@@ -1,2 +1,2 @@
 timestamp,image,kernel_size,noise_level,processing_time_ms,method
-2025-11-18T20:32:16.280345+01:00,image.jpg,5,0.05,4509.523792,seq
+2025-11-18T22:14:50.400111+01:00,image.jpg,5,0.1,4653.179833,seq

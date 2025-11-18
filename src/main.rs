@@ -5,7 +5,7 @@ mod gpu;
 mod distributed;
 
 use clap::Parser;
-use csv::Writer;
+use csv::WriterBuilder;
 use serde::Serialize;
 use std::fs::{create_dir_all, OpenOptions};
 use std::path::PathBuf;
@@ -44,6 +44,7 @@ struct Measurement {
     noise_level: f32,
     processing_time_ms: f64,
     method: String,
+    num_processes: i32,
 }
 
 fn validate_args(args: &Args) -> Result<(), String> {
@@ -70,7 +71,7 @@ fn main() {
     // Special handling for distributed method
     if args.method == "dist" {
         let start = Instant::now();
-        let (filtered, rank) = distributed::apply_median_filter_mpi(
+        let (filtered, rank, num_processes) = distributed::apply_median_filter_mpi(
             &args.input,
             args.noise,
             args.kernel,
@@ -83,7 +84,7 @@ fn main() {
             println!("Processing time: {:.2} ms", processing_time_ms);
             println!("Saving output: {:?}", args.output);
             filtered.save(&args.output).expect("Failed to save output image");
-            save_measurement(&args, processing_time_ms);
+            save_measurement(&args, processing_time_ms, Some(num_processes));
             println!("Done!");
         }
         return;
@@ -122,25 +123,30 @@ fn main() {
     filtered.save(&args.output).expect("Failed to save output image");
 
     // Save measurement to CSV
-    save_measurement(&args, processing_time_ms);
+    save_measurement(&args, processing_time_ms, None);
 
     println!("Done!");
 }
 
-fn save_measurement(args: &Args, processing_time_ms: f64) {
+fn save_measurement(args: &Args, processing_time_ms: f64, num_processes: Option<i32>) {
     // Create results directory if it doesn't exist
     create_dir_all("results").expect("Failed to create results directory");
 
-    let csv_path = format!("results/{}.csv", args.method);
+    let csv_path = "results/results.csv";
+
+    // Check if file exists to determine if we need to write headers
+    let file_exists = std::path::Path::new(csv_path).exists();
 
     let file = OpenOptions::new()
         .create(true)
         .write(true)
-        .truncate(true)
-        .open(&csv_path)
+        .append(true)  // Append instead of overwrite
+        .open(csv_path)
         .expect("Failed to open CSV file");
 
-    let mut wtr = Writer::from_writer(file);
+    let mut wtr = WriterBuilder::new()
+        .has_headers(!file_exists)  // Only write headers if file is new
+        .from_writer(file);
 
     let measurement = Measurement {
         timestamp: chrono::Local::now().to_rfc3339(),
@@ -149,6 +155,7 @@ fn save_measurement(args: &Args, processing_time_ms: f64) {
         noise_level: args.noise,
         processing_time_ms,
         method: args.method.clone(),
+        num_processes: num_processes.unwrap_or(1),
     };
 
     wtr.serialize(measurement).expect("Failed to serialize measurement");
