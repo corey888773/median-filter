@@ -1,5 +1,6 @@
 mod shared;
 mod sequential;
+mod parallel;
 
 use clap::Parser;
 use csv::Writer;
@@ -80,8 +81,9 @@ fn main() {
     let start = Instant::now();
     let filtered = match args.method.as_str() {
         "seq" => sequential::apply_median_filter(&img, args.kernel),
+        "par" => parallel::apply_median_filter(&img, args.kernel),
         _ => {
-            eprintln!("Error: Unknown method '{}'. Available: seq", args.method);
+            eprintln!("Error: Unknown method '{}'. Available: seq, par", args.method);
             std::process::exit(1);
         }
     };
